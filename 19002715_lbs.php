@@ -49,24 +49,43 @@
 ###[/DEF]###
 ###[HELP]###
 
-This is almost a drop in replacemennt for Jonofe's "Alexa Last Active Echo Device" (LBS19001202) - with the exception of the last 2 outputs (OTHER, UNKNOWN) are moved down due to extended amount of Echos.
+<iframe id="myIframe" frameBorder='0' scrolling="no" height='120px' width='260px' src="https://edomi.anrath.net/edomi/lbs.html" name="EDOMI LBS Header">Browser not compatible.</iframe>
 
-The "last device" detection can be leveraged to use the same command on different rooms - e.g. "open/close blinds" or "lights on/off" can be used in each room and just triggers the specific blinds/lights on the given room where the echo is located.
-you have to connect the specific output of Jonofes Alexa Smarthome Device LBS19001201 (A4-A23) to E1 of this LBS.
-The value will be sent to one of the outputs A3-A17 depending at which Echo device the voice command was received.
-You can specify up to 15 different Echo devices at E3-E17, which will be matched with the outputs A3-A17.
+If you want to use the same voice command at different Echo devices to trigger different actions,
+you have to connect the specific output of the Alexa Smarthome Device LBS (A4-A23) to E1 of this LBS.
+The value will be sent to one of the outputs A3-A14 depending at which Echo device the voice command was received.
+You can specify up to 10 different Echo devices at E3-E12, which will be matched with the outputs A3-A12.
 
 E1: Triggers LBS with the value received by the voice command
 (E1 has to be connected to one of the outputs A4-A23 of the Alexa Smarthome Device LBS (LBS19001201)
 E2: Enable Logging (0-none|1-emerg|2-alert|3-crit|4-err|5-warning|6-notice|7-info|8-debug)
-E3-E17: Name of Echo 1 (till Echo 15)
+E3: Name of Echo 1
+E4: Name of Echo 2
+E5: Name of Echo 3
+E6: Name of Echo 4
+E7: Name of Echo 5
+E8: Name of Echo 6
+E9: Name of Echo 7
+E10: Name of Echo 8
+E11: Name of Echo 9
+E12: Name of Echo 10
 
 A1: Name of Echo device which was triggered by the last voice command
 A2: Result of last operation
 A3: Trigger value at E1 will be sent to A3 if voice command was received by Echo 1
 A4: Trigger value at E1 will be sent to A4 if voice command was received by Echo 2
-. 
-. 
+A5: Trigger value at E1 will be sent to A5 if voice command was received by Echo 3
+A6: Trigger value at E1 will be sent to A6 if voice command was received by Echo 4
+A7: Trigger value at E1 will be sent to A7 if voice command was received by Echo 5
+A8: Trigger value at E1 will be sent to A8 if voice command was received by Echo 6
+A9: Trigger value at E1 will be sent to A9 if voice command was received by Echo 7
+A10: Trigger value at E1 will be sent to A10 if voice command was received by Echo 8
+A11: Trigger value at E1 will be sent to A11 if voice command was received by Echo 9
+A12: Trigger value at E1 will be sent to A12 if voice command was received by Echo 10
+A13: Trigger value at E1 will be sent to A13 if voice command was received by Echo 11
+A14: Trigger value at E1 will be sent to A14 if voice command was received by Echo 12
+A15: Trigger value at E1 will be sent to A15 if voice command was received by Echo 13
+A16: Trigger value at E1 will be sent to A16 if voice command was received by Echo 14
 A17: Trigger value at E1 will be sent to A17 if voice command was received by Echo 15
 A18: Trigger value at E1 will be sent to A18 if voice command was received by a known Echo device, but not specified at E3-E12
 A19: Trigger value at E1 will be sent to A19 if voice command was received by an unknown Echo device
@@ -257,11 +276,11 @@ if (file_exists('/tmp/.echos.inc.php')) {
                     if (!empty($activity['voiceHistoryRecordItems']) && is_array($activity['voiceHistoryRecordItems'])) {
                         $transcriptText = '';
             
-                        // Suche nach dem ersten gültigen transcriptText
+                        // Suche nach dem ersten gÃ¼ltigen transcriptText
                         foreach ($activity['voiceHistoryRecordItems'] as $item) {
                             if (isset($item['transcriptText']) && is_string($item['transcriptText'])) {
                                 $text = trim($item['transcriptText']);
-                                // Prüfen, ob nach dem Entfernen von Leerzeichen Text übrig bleibt
+                                // PrÃ¼fen, ob nach dem Entfernen von Leerzeichen Text Ã¼brig bleibt
                                 if ($text !== '') {
                                     $transcriptText = $text;
                                     break;
@@ -269,11 +288,11 @@ if (file_exists('/tmp/.echos.inc.php')) {
                             }
                         }
             
-                        // Wenn gültiger Text und Gerätename vorhanden sind
+                        // Wenn gÃ¼ltiger Text und GerÃ¤tename vorhanden sind
                         if ($transcriptText !== '' && !empty($activity['device']['deviceName'])) {
                             $echoName = $activity['device']['deviceName'];
                 
-                            // Logging für Treffer
+                            // Logging fÃ¼r Treffer
                             logging($id, "Treffer gefunden - Device: '{$echoName}' | Transcript: '{$transcriptText}'");
                 
                             // EDOMI Ausgaben setzen (HTTP-Code Variable an dein Skript anpassen, z.B. $info['http_code'] oder 200)
@@ -282,14 +301,14 @@ if (file_exists('/tmp/.echos.inc.php')) {
                             logic_setOutput($id, 2, 'OK (' . $httpCode . ')');
                 
                             $found = true;
-                            break; // Erstes passendes Gerät gefunden (in deinem Beispiel: "Wohnzimmer")
+                            break; // Erstes passendes GerÃ¤t gefunden (in deinem Beispiel: "Wohnzimmer")
                         }
                     }
                 }
             }
 
             if (!$found) {
-                logging($id, 'Kein Gerät mit gültigem Transkript-Inhalt gefunden.');
+                logging($id, 'Kein GerÃ¤t mit gÃ¼ltigem Transkript-Inhalt gefunden.');
             }	
             if ($found) {
                 $match = false;
