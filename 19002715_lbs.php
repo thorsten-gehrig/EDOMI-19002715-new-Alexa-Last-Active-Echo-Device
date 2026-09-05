@@ -1,5 +1,5 @@
 ###[DEF]###
-[name		= New Alexa Last Active Echo Device v1.0	]
+[name		= New Alexa Last Active Echo Device v1.1	]
 
 [e#1 trigger = Trigger ]
 [e#2		 = Log level #init=8 ]
@@ -39,7 +39,7 @@
 [a#18		= Echo OTHER ]
 [a#19		= Echo UNKNOWN ]
 
-[v#100		= 1.0 ]
+[v#100		= 1.1 ]
 [v#101		= 19002715 ]
 [v#102		= New-Alexa-Last-Active-Echo-Device ]
 [v#103		= 0 ]
@@ -92,6 +92,7 @@ A19: Trigger value at E1 will be sent to A19 if voice command was received by an
 
 Changelog:
 ==========
+v1.1: Updated to new Alexa API endpoint (rah/alexa-history-records-v2), response key (alexaHistoryRecords), device field (deviceInfo.deviceName), dynamic timestamps
 v1.0: Initial version - drop-in replacement for 19001203 for "new Alexa"
 
 ###[/HELP]###
@@ -229,17 +230,23 @@ if (file_exists('/tmp/.echos.inc.php')) {
         $csrf = importCSRF();
         logging($id, 'CSRF: ' . $csrf);
         $activity_csrf = get_activity_csrf();
-        logging($id,'Activity-CSRF:'.$activity_csrf);
+        logging($id, 'Activity-CSRF:' . $activity_csrf);
+
+        $endTime = round(microtime(true) * 1000);
+        $startTime = $endTime - (7 * 24 * 60 * 60 * 1000); // 7 Tage zurück
+
         $http_headers = array(
             'DNT: 1',
             'Connection: keep-alive',
             'Content-Type: application/json; charset=UTF-8',
-            'anti-csrftoken-a2z: '.$activity_csrf,
-            'csrf: ' . $csrf
+            'Accept: application/json',
+            'anti-csrftoken-a2z: ' . $activity_csrf,
+            'csrf: ' . $csrf,
+            'x-amzn-timezoneid: Europe/Berlin'
         );
-        $url = 'https://www.' . $config['amazon'] . '/alexa-privacy/apd/rvh/customer-history-records-v2/?startTime=0'
-            . '&endTime=2147483647000&pageType=VOICE_HISTORY' ;
-        logging($id,'URL: '. $url);
+        $url = 'https://www.' . $config['amazon'] . '/alexa-privacy/apd/rah/alexa-history-records-v2'
+            . '?startTime=' . $startTime . '&endTime=' . $endTime;
+        logging($id, 'URL: ' . $url);
         $ch = curl_init();
         curl_setopt($ch, CURLOPT_USERAGENT, $config['userAgent']);
         curl_setopt($ch, CURLOPT_COOKIEFILE, $config['cookieFile']);
@@ -249,7 +256,7 @@ if (file_exists('/tmp/.echos.inc.php')) {
         curl_setopt($ch, CURLOPT_HEADER, 1);
         curl_setopt($ch, CURLOPT_HTTPHEADER, $http_headers);
         curl_setopt($ch, CURLOPT_POST, 1);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, '{"previousRequestToken": null}');
+        curl_setopt($ch, CURLOPT_POSTFIELDS, '{}');
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
         curl_setopt($ch, CURLOPT_FOLLOWLOCATION, 1);
         $response = curl_exec($ch);
@@ -261,47 +268,39 @@ if (file_exists('/tmp/.echos.inc.php')) {
 
         $success = $info['http_code'] == 200 ? true : false;
         if ($success) {
-         	// 1. Rohdaten loggen
-			logging($id, 'lastEcho(): ' . $body);
+            logging($id, 'lastEcho(): ' . $body);
 
-			// 2. JSON-String in ein PHP-Array umwandeln
-			$response = json_decode($body, true);
+            $response = json_decode($body, true);
 
             $found = false;
 
-            // 3. Array durchsuchen
-            if (isset($response['customerHistoryRecords']) && is_array($response['customerHistoryRecords'])) {
-                foreach ($response['customerHistoryRecords'] as $activity) {
-        
+            if (isset($response['alexaHistoryRecords']) && is_array($response['alexaHistoryRecords'])) {
+                foreach ($response['alexaHistoryRecords'] as $activity) {
+
                     if (!empty($activity['voiceHistoryRecordItems']) && is_array($activity['voiceHistoryRecordItems'])) {
                         $transcriptText = '';
-            
-                        // Suche nach dem ersten gültigen transcriptText
+
                         foreach ($activity['voiceHistoryRecordItems'] as $item) {
                             if (isset($item['transcriptText']) && is_string($item['transcriptText'])) {
                                 $text = trim($item['transcriptText']);
-                                // Prüfen, ob nach dem Entfernen von Leerzeichen Text übrig bleibt
                                 if ($text !== '') {
                                     $transcriptText = $text;
                                     break;
                                 }
                             }
                         }
-            
-                        // Wenn gültiger Text und Gerätename vorhanden sind
-                        if ($transcriptText !== '' && !empty($activity['device']['deviceName'])) {
-                            $echoName = $activity['device']['deviceName'];
-                
-                            // Logging für Treffer
+
+                        if ($transcriptText !== '' && !empty($activity['deviceInfo']['deviceName'])) {
+                            $echoName = $activity['deviceInfo']['deviceName'];
+
                             logging($id, "Treffer gefunden - Device: '{$echoName}' | Transcript: '{$transcriptText}'");
-                
-                            // EDOMI Ausgaben setzen (HTTP-Code Variable an dein Skript anpassen, z.B. $info['http_code'] oder 200)
+
                             $httpCode = isset($info['http_code']) ? $info['http_code'] : '200';
                             logic_setOutput($id, 1, $echoName);
                             logic_setOutput($id, 2, 'OK (' . $httpCode . ')');
-                
+
                             $found = true;
-                            break; // Erstes passendes Gerät gefunden (in deinem Beispiel: "Wohnzimmer")
+                            break;
                         }
                     }
                 }
@@ -309,7 +308,7 @@ if (file_exists('/tmp/.echos.inc.php')) {
 
             if (!$found) {
                 logging($id, 'Kein Gerät mit gültigem Transkript-Inhalt gefunden.');
-            }	
+            }
             if ($found) {
                 $match = false;
                 for ($i = 3; $i <= 17; $i ++) {
