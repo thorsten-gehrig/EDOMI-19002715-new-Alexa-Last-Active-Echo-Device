@@ -339,7 +339,7 @@ if (file_exists('/tmp/.echos.inc.php')) {
     logic_setOutput($id, 1, 'UNKNOWN');
     logic_setOutput($id, 2, 'File /tmp/.echos.inc.php is missing. Make sure Alexa Control LBS is running (LBS19000809)');
 }
-logging($id, 'Echo Device indentified as: ' . $echoName);
+logging($id, 'Echo Device identified as: ' . $echoName);
 sql_disconnect();
 
 ?>
