@@ -1,5 +1,5 @@
 ###[DEF]###
-[name		= New Alexa Last Active Echo Device v1.7	]
+[name		= New Alexa Last Active Echo Device v1.8	]
 
 [e#1 trigger = Trigger ]
 [e#2		 = Log level #init=8 ]
@@ -39,7 +39,7 @@
 [a#18		= Echo OTHER ]
 [a#19		= Echo UNKNOWN ]
 
-[v#100		= 1.7 ]
+[v#100		= 1.8 ]
 [v#101		= 19002715 ]
 [v#102		= New-Alexa-Last-Active-Echo-Device ]
 [v#103		= 0 ]
@@ -92,6 +92,8 @@ A19: Trigger value at E1 will be sent to A19 if voice command was received by an
 
 Changelog:
 ==========
+v1.8: Skip ROUTINES_3P records — triggered automatically on multiple devices,
+      not by a person speaking to a specific device
 v1.7: Hardcode Alexa iOS app User-Agent for all requests to prevent Amazon
       IP-based blocking (overrides config userAgent from LBS19000809)
 v1.6: Add x-amzn-alexa-app header to csrf-token and history-records requests
@@ -136,6 +138,7 @@ sql_connect();
 define('SKIP_UTTERANCE_TYPES', [
     'DEVICE_ARBITRATION',
     'DISCARDED_NON_DEVICE_DIRECTED_INTENT',
+    'ROUTINES_3P',       // triggered automatically on multiple devices, not by a person
 ]);
 
 // Alexa app identifier header — identifies requests as coming from the official Alexa iOS app
