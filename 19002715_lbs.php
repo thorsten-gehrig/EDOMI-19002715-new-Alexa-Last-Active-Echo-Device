@@ -1,5 +1,5 @@
 ###[DEF]###
-[name		= New Alexa Last Active Echo Device v1.6	]
+[name		= New Alexa Last Active Echo Device v1.7	]
 
 [e#1 trigger = Trigger ]
 [e#2		 = Log level #init=8 ]
@@ -39,7 +39,7 @@
 [a#18		= Echo OTHER ]
 [a#19		= Echo UNKNOWN ]
 
-[v#100		= 1.6 ]
+[v#100		= 1.7 ]
 [v#101		= 19002715 ]
 [v#102		= New-Alexa-Last-Active-Echo-Device ]
 [v#103		= 0 ]
@@ -92,6 +92,8 @@ A19: Trigger value at E1 will be sent to A19 if voice command was received by an
 
 Changelog:
 ==========
+v1.7: Hardcode Alexa iOS app User-Agent for all requests to prevent Amazon
+      IP-based blocking (overrides config userAgent from LBS19000809)
 v1.6: Add x-amzn-alexa-app header to csrf-token and history-records requests
       to identify as official Alexa iOS app and avoid HTTP 429 rate limiting
 v1.5: Log HTTP status code from csrf-token endpoint for better diagnosis
@@ -138,6 +140,9 @@ define('SKIP_UTTERANCE_TYPES', [
 
 // Alexa app identifier header — identifies requests as coming from the official Alexa iOS app
 define('ALEXA_APP_HEADER', 'eyJhcHBJZCI6ImFtem4xLmFwcGxpY2F0aW9uLjQ1Nzg2ZWUwOWIwMjRhMDhhNjk4ZDMwYjBhZDMxMDM3IiwidmVyc2lvbiI6IjEuMCJ9');
+
+// User-Agent matching the Alexa iOS app — required to avoid Amazon 429 rate limiting on server IPs
+define('ALEXA_USER_AGENT', 'AppleWebKit PitanguiBridge/2.2.757290.0-[HARDWARE=iPhone16_1][SOFTWARE=27.0][DEVICE=iPhone]');
 
 function logging($id, $msg, $var = NULL, $priority = 8)
 {
@@ -221,7 +226,7 @@ function get_activity_csrf()
         'Connection: keep-alive'
     );
     $ch = curl_init();
-    curl_setopt($ch, CURLOPT_USERAGENT,      $config['userAgent']);
+    curl_setopt($ch, CURLOPT_USERAGENT,      ALEXA_USER_AGENT);
     curl_setopt($ch, CURLOPT_COOKIEFILE,     $config['cookieFile']);
     curl_setopt($ch, CURLOPT_URL,            $url);
     curl_setopt($ch, CURLOPT_HTTP_VERSION,   CURL_HTTP_VERSION_1_1);
@@ -318,7 +323,7 @@ if (file_exists('/tmp/.echos.inc.php')) {
         logging($id, 'URL: ' . $url);
 
         $ch = curl_init();
-        curl_setopt($ch, CURLOPT_USERAGENT,      $config['userAgent']);
+        curl_setopt($ch, CURLOPT_USERAGENT,      ALEXA_USER_AGENT);
         curl_setopt($ch, CURLOPT_COOKIEFILE,     $config['cookieFile']);
         curl_setopt($ch, CURLOPT_URL,            $url);
         curl_setopt($ch, CURLOPT_HTTP_VERSION,   CURL_HTTP_VERSION_1_1);
