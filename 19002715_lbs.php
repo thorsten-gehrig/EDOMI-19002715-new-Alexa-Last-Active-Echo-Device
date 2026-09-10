@@ -1,5 +1,5 @@
 ###[DEF]###
-[name		= New Alexa Last Active Echo Device v1.5	]
+[name		= New Alexa Last Active Echo Device v1.6	]
 
 [e#1 trigger = Trigger ]
 [e#2		 = Log level #init=8 ]
@@ -39,7 +39,7 @@
 [a#18		= Echo OTHER ]
 [a#19		= Echo UNKNOWN ]
 
-[v#100		= 1.5 ]
+[v#100		= 1.6 ]
 [v#101		= 19002715 ]
 [v#102		= New-Alexa-Last-Active-Echo-Device ]
 [v#103		= 0 ]
@@ -92,6 +92,8 @@ A19: Trigger value at E1 will be sent to A19 if voice command was received by an
 
 Changelog:
 ==========
+v1.6: Add x-amzn-alexa-app header to csrf-token and history-records requests
+      to identify as official Alexa iOS app and avoid HTTP 429 rate limiting
 v1.5: Log HTTP status code from csrf-token endpoint for better diagnosis
 v1.4: Fix anti-csrftoken-a2z fetch — use dedicated /alexa-privacy/apd/csrf-token
       endpoint (plain text response) instead of scraping HTML from activity page
@@ -133,6 +135,9 @@ define('SKIP_UTTERANCE_TYPES', [
     'DEVICE_ARBITRATION',
     'DISCARDED_NON_DEVICE_DIRECTED_INTENT',
 ]);
+
+// Alexa app identifier header — identifies requests as coming from the official Alexa iOS app
+define('ALEXA_APP_HEADER', 'eyJhcHBJZCI6ImFtem4xLmFwcGxpY2F0aW9uLjQ1Nzg2ZWUwOWIwMjRhMDhhNjk4ZDMwYjBhZDMxMDM3IiwidmVyc2lvbiI6IjEuMCJ9');
 
 function logging($id, $msg, $var = NULL, $priority = 8)
 {
@@ -211,6 +216,8 @@ function get_activity_csrf()
         'Accept: text/plain, text/html, */*',
         'Content-Type: application/json',
         'csrf: ' . $csrf,
+        'x-amzn-timezoneid: Europe/Berlin',
+        'x-amzn-alexa-app: ' . ALEXA_APP_HEADER,
         'Connection: keep-alive'
     );
     $ch = curl_init();
@@ -302,7 +309,8 @@ if (file_exists('/tmp/.echos.inc.php')) {
             'Accept: application/json',
             'anti-csrftoken-a2z: ' . $activity_csrf,
             'csrf: ' . $csrf,
-            'x-amzn-timezoneid: Europe/Berlin'
+            'x-amzn-timezoneid: Europe/Berlin',
+            'x-amzn-alexa-app: ' . ALEXA_APP_HEADER
         );
         $url = 'https://www.' . $config['amazon']
             . '/alexa-privacy/apd/rah/alexa-history-records-v2'
