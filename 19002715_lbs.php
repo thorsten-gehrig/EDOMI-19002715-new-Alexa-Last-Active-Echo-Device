@@ -1,5 +1,5 @@
 ###[DEF]###
-[name		= New Alexa Last Active Echo Device v1.3	]
+[name		= New Alexa Last Active Echo Device v1.4	]
 
 [e#1 trigger = Trigger ]
 [e#2		 = Log level #init=8 ]
@@ -39,7 +39,7 @@
 [a#18		= Echo OTHER ]
 [a#19		= Echo UNKNOWN ]
 
-[v#100		= 1.3 ]
+[v#100		= 1.4 ]
 [v#101		= 19002715 ]
 [v#102		= New-Alexa-Last-Active-Echo-Device ]
 [v#103		= 0 ]
@@ -92,6 +92,8 @@ A19: Trigger value at E1 will be sent to A19 if voice command was received by an
 
 Changelog:
 ==========
+v1.4: Fix anti-csrftoken-a2z fetch — use dedicated /alexa-privacy/apd/csrf-token
+      endpoint (plain text response) instead of scraping HTML from activity page
 v1.3: Better session error detection — abort early with clear message when csrf cookie
       or anti-csrftoken-a2z is missing; explicit 403 hint to re-login via LBS19000809
 v1.2: Improved device detection — routines and conversation records are now recognized;
@@ -202,32 +204,29 @@ function importCSRF()
 function get_activity_csrf()
 {
     global $config, $csrf;
-    $url = 'https://www.' . $config['amazon'] . '/alexa-privacy/apd/activity?ref=activityHistory';
+    // Dedicated endpoint returns the anti-csrftoken-a2z value as plain text
+    $url = 'https://www.' . $config['amazon'] . '/alexa-privacy/apd/csrf-token';
     $http_headers = array(
-        'DNT: 1',
-        'Connection: keep-alive',
-        'Content-Type: application/json; charset=UTF-8',
-        'Referer: https://alexa.' . $config['amazon'] . '/spa/index.html',
-        'Origin: https://alexa.' . $config['amazon'],
-        'csrf: ' . $csrf
+        'Accept: text/plain, text/html, */*',
+        'Content-Type: application/json',
+        'csrf: ' . $csrf,
+        'Connection: keep-alive'
     );
     $ch = curl_init();
-    curl_setopt($ch, CURLOPT_USERAGENT, $config['userAgent']);
-    curl_setopt($ch, CURLOPT_COOKIEFILE, $config['cookieFile']);
-    curl_setopt($ch, CURLOPT_URL, $url);
-    curl_setopt($ch, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
-    curl_setopt($ch, CURLOPT_ENCODING, "gzip, deflate");
-    curl_setopt($ch, CURLOPT_HEADER, 1);
-    curl_setopt($ch, CURLOPT_HTTPHEADER, $http_headers);
+    curl_setopt($ch, CURLOPT_USERAGENT,      $config['userAgent']);
+    curl_setopt($ch, CURLOPT_COOKIEFILE,     $config['cookieFile']);
+    curl_setopt($ch, CURLOPT_URL,            $url);
+    curl_setopt($ch, CURLOPT_HTTP_VERSION,   CURL_HTTP_VERSION_1_1);
+    curl_setopt($ch, CURLOPT_ENCODING,       "gzip, deflate");
+    curl_setopt($ch, CURLOPT_HTTPHEADER,     $http_headers);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
     curl_setopt($ch, CURLOPT_FOLLOWLOCATION, 1);
-    $response = curl_exec($ch);
-    $header_size = curl_getinfo($ch, CURLINFO_HEADER_SIZE);
-    $header = substr($response, 0, $header_size);
-    $body = substr($response, $header_size);
+    $body     = curl_exec($ch);
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     curl_close($ch);
-    if (preg_match('/"csrf-token" content="(.*?)"/', $body, $match))
-        return $match[1];
+    $token = trim($body);
+    if ($httpCode === 200 && $token !== '')
+        return $token;
     else
         return false;
 }
