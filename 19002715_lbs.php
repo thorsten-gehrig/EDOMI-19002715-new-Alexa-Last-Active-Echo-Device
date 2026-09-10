@@ -49,8 +49,6 @@
 ###[/DEF]###
 ###[HELP]###
 
-<iframe id="myIframe" frameBorder='0' scrolling="no" height='120px' width='260px' src="https://edomi.anrath.net/edomi/lbs.html" name="EDOMI LBS Header">Browser not compatible.</iframe>
-
 If you want to use the same voice command at different Echo devices to trigger different actions,
 you have to connect the specific output of the Alexa Smarthome Device LBS (A4-A23) to E1 of this LBS.
 The value will be sent to one of the outputs A3-A14 depending at which Echo device the voice command was received.
