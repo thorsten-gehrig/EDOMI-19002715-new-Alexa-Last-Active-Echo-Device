@@ -1,5 +1,5 @@
 ###[DEF]###
-[name		= New Alexa Last Active Echo Device v1.4	]
+[name		= New Alexa Last Active Echo Device v1.5	]
 
 [e#1 trigger = Trigger ]
 [e#2		 = Log level #init=8 ]
@@ -39,7 +39,7 @@
 [a#18		= Echo OTHER ]
 [a#19		= Echo UNKNOWN ]
 
-[v#100		= 1.4 ]
+[v#100		= 1.5 ]
 [v#101		= 19002715 ]
 [v#102		= New-Alexa-Last-Active-Echo-Device ]
 [v#103		= 0 ]
@@ -92,6 +92,7 @@ A19: Trigger value at E1 will be sent to A19 if voice command was received by an
 
 Changelog:
 ==========
+v1.5: Log HTTP status code from csrf-token endpoint for better diagnosis
 v1.4: Fix anti-csrftoken-a2z fetch — use dedicated /alexa-privacy/apd/csrf-token
       endpoint (plain text response) instead of scraping HTML from activity page
 v1.3: Better session error detection — abort early with clear message when csrf cookie
@@ -225,10 +226,8 @@ function get_activity_csrf()
     $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     curl_close($ch);
     $token = trim($body);
-    if ($httpCode === 200 && $token !== '')
-        return $token;
-    else
-        return false;
+    // Return [httpCode, token] so caller can log the status
+    return [$httpCode, $token];
 }
 
 /**
@@ -280,11 +279,17 @@ if (file_exists('/tmp/.echos.inc.php')) {
             exit();
         }
 
-        $activity_csrf = get_activity_csrf();
-        if ($activity_csrf === false) {
-            logging($id, 'Activity-CSRF fetch failed — proceeding without anti-csrftoken-a2z header', null, 5);
-        } else {
-            logging($id, 'Activity-CSRF: ' . $activity_csrf);
+        [$csrfHttpCode, $activity_csrf] = get_activity_csrf();
+        logging($id, 'Activity-CSRF endpoint HTTP ' . $csrfHttpCode . ' | token: ' . ($activity_csrf !== '' ? $activity_csrf : '(empty)'));
+        if ($csrfHttpCode !== 200 || $activity_csrf === '') {
+            $hint = ($csrfHttpCode == 401 || $csrfHttpCode == 403)
+                ? ' Session not authenticated — re-login via LBS19000809 required.'
+                : ' Check network or Amazon session.';
+            logic_setOutput($id, 1, 'UNKNOWN');
+            logic_setOutput($id, 2, 'csrf-token fetch failed (HTTP ' . $csrfHttpCode . ').' . $hint);
+            logging($id, 'Aborting: csrf-token endpoint returned HTTP ' . $csrfHttpCode, null, 1);
+            sql_disconnect();
+            exit();
         }
 
         $endTime   = round(microtime(true) * 1000);
@@ -295,18 +300,10 @@ if (file_exists('/tmp/.echos.inc.php')) {
             'Connection: keep-alive',
             'Content-Type: application/json; charset=UTF-8',
             'Accept: application/json',
+            'anti-csrftoken-a2z: ' . $activity_csrf,
             'csrf: ' . $csrf,
             'x-amzn-timezoneid: Europe/Berlin'
         );
-        // anti-csrftoken-a2z is required; skip request entirely if unavailable
-        if ($activity_csrf === false) {
-            logic_setOutput($id, 1, 'UNKNOWN');
-            logic_setOutput($id, 2, 'Session expired: activity-csrf fetch failed. Re-login via LBS19000809 required.');
-            logging($id, 'Aborting: could not fetch anti-csrftoken-a2z from activity page', null, 1);
-            sql_disconnect();
-            exit();
-        }
-        $http_headers[] = 'anti-csrftoken-a2z: ' . $activity_csrf;
         $url = 'https://www.' . $config['amazon']
             . '/alexa-privacy/apd/rah/alexa-history-records-v2'
             . '?startTime=' . $startTime . '&endTime=' . $endTime;
