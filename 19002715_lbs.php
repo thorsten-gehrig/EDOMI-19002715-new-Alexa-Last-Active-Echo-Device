@@ -1,5 +1,5 @@
 ###[DEF]###
-[name		= New Alexa Last Active Echo Device v1.2	]
+[name		= New Alexa Last Active Echo Device v1.3	]
 
 [e#1 trigger = Trigger ]
 [e#2		 = Log level #init=8 ]
@@ -39,7 +39,7 @@
 [a#18		= Echo OTHER ]
 [a#19		= Echo UNKNOWN ]
 
-[v#100		= 1.2 ]
+[v#100		= 1.3 ]
 [v#101		= 19002715 ]
 [v#102		= New-Alexa-Last-Active-Echo-Device ]
 [v#103		= 0 ]
@@ -92,6 +92,8 @@ A19: Trigger value at E1 will be sent to A19 if voice command was received by an
 
 Changelog:
 ==========
+v1.3: Better session error detection — abort early with clear message when csrf cookie
+      or anti-csrftoken-a2z is missing; explicit 403 hint to re-login via LBS19000809
 v1.2: Improved device detection — routines and conversation records are now recognized;
       DEVICE_ARBITRATION and DISCARDED_NON_DEVICE_DIRECTED_INTENT records are explicitly
       skipped; no transcript required, device name alone is sufficient
@@ -270,9 +272,21 @@ if (file_exists('/tmp/.echos.inc.php')) {
     if ($config !== false && $echos !== false && is_array($config) && is_array($echos)) {
 
         $csrf = importCSRF();
-        logging($id, 'CSRF: ' . $csrf);
+        logging($id, 'CSRF: ' . ($csrf !== false ? $csrf : 'NOT FOUND — cookie file may be expired'));
+        if ($csrf === false) {
+            logic_setOutput($id, 1, 'UNKNOWN');
+            logic_setOutput($id, 2, 'Session expired: csrf cookie not found. Re-login via LBS19000809 required.');
+            logging($id, 'Aborting: csrf cookie missing in ' . $config['cookieFile'], null, 1);
+            sql_disconnect();
+            exit();
+        }
+
         $activity_csrf = get_activity_csrf();
-        logging($id, 'Activity-CSRF: ' . $activity_csrf);
+        if ($activity_csrf === false) {
+            logging($id, 'Activity-CSRF fetch failed — proceeding without anti-csrftoken-a2z header', null, 5);
+        } else {
+            logging($id, 'Activity-CSRF: ' . $activity_csrf);
+        }
 
         $endTime   = round(microtime(true) * 1000);
         $startTime = $endTime - (7 * 24 * 60 * 60 * 1000);
@@ -282,10 +296,18 @@ if (file_exists('/tmp/.echos.inc.php')) {
             'Connection: keep-alive',
             'Content-Type: application/json; charset=UTF-8',
             'Accept: application/json',
-            'anti-csrftoken-a2z: ' . $activity_csrf,
             'csrf: ' . $csrf,
             'x-amzn-timezoneid: Europe/Berlin'
         );
+        // anti-csrftoken-a2z is required; skip request entirely if unavailable
+        if ($activity_csrf === false) {
+            logic_setOutput($id, 1, 'UNKNOWN');
+            logic_setOutput($id, 2, 'Session expired: activity-csrf fetch failed. Re-login via LBS19000809 required.');
+            logging($id, 'Aborting: could not fetch anti-csrftoken-a2z from activity page', null, 1);
+            sql_disconnect();
+            exit();
+        }
+        $http_headers[] = 'anti-csrftoken-a2z: ' . $activity_csrf;
         $url = 'https://www.' . $config['amazon']
             . '/alexa-privacy/apd/rah/alexa-history-records-v2'
             . '?startTime=' . $startTime . '&endTime=' . $endTime;
@@ -352,9 +374,12 @@ if (file_exists('/tmp/.echos.inc.php')) {
             }
 
         } else {
+            $hint = ($info['http_code'] == 403)
+                ? ' — Session expired or cookies invalid. Re-login via LBS19000809 required.'
+                : '';
             logic_setOutput($id, 1, 'UNKNOWN');
-            logic_setOutput($id, 2, 'Request failed (' . $info['http_code'] . ')');
-            logging($id, 'Request failed. HTTP ' . $info['http_code']);
+            logic_setOutput($id, 2, 'Request failed (' . $info['http_code'] . ')' . $hint);
+            logging($id, 'Request failed. HTTP ' . $info['http_code'] . $hint);
         }
 
     } else {
