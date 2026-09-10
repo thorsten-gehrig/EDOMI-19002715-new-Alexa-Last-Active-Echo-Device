@@ -1,3 +1,107 @@
+###[DEF]###
+[name		= New Alexa Last Active Echo Device v1.2	]
+
+[e#1 trigger = Trigger ]
+[e#2		 = Log level #init=8 ]
+[e#3		 = Echo name  1 ]
+[e#4		 = Echo name  2 ]
+[e#5		 = Echo name  3 ]
+[e#6		 = Echo name  4 ]
+[e#7		 = Echo name  5 ]
+[e#8		 = Echo name  6 ]
+[e#9		 = Echo name  7 ]
+[e#10		 = Echo name  8 ]
+[e#11		 = Echo name  9 ]
+[e#12		 = Echo name 10 ]
+[e#13		 = Echo name 11 ]
+[e#14		 = Echo name 12 ]
+[e#15		 = Echo name 13 ]
+[e#16		 = Echo name 14 ]
+[e#17		 = Echo name 15 ]
+
+[a#1		= Echo Device ]
+[a#2		= Result ]
+[a#3		= Echo  1 ]
+[a#4		= Echo  2 ]
+[a#5		= Echo  3 ]
+[a#6		= Echo  4 ]
+[a#7		= Echo  5 ]
+[a#8		= Echo  6 ]
+[a#9		= Echo  7 ]
+[a#10		= Echo  8 ]
+[a#11		= Echo  9 ]
+[a#12		= Echo 10 ]
+[a#13		= Echo 11 ]
+[a#14		= Echo 12 ]
+[a#15		= Echo 13 ]
+[a#16		= Echo 14 ]
+[a#17		= Echo 15 ]
+[a#18		= Echo OTHER ]
+[a#19		= Echo UNKNOWN ]
+
+[v#100		= 1.2 ]
+[v#101		= 19002715 ]
+[v#102		= New-Alexa-Last-Active-Echo-Device ]
+[v#103		= 0 ]
+[v#104		= 0 ]
+[v#105		= 1 ]
+
+###[/DEF]###
+###[HELP]###
+
+<iframe id="myIframe" frameBorder='0' scrolling="no" height='120px' width='260px' src="https://edomi.anrath.net/edomi/lbs.html" name="EDOMI LBS Header">Browser not compatible.</iframe>
+
+If you want to use the same voice command at different Echo devices to trigger different actions,
+you have to connect the specific output of the Alexa Smarthome Device LBS (A4-A23) to E1 of this LBS.
+The value will be sent to one of the outputs A3-A14 depending at which Echo device the voice command was received.
+You can specify up to 10 different Echo devices at E3-E12, which will be matched with the outputs A3-A12.
+
+E1: Triggers LBS with the value received by the voice command
+(E1 has to be connected to one of the outputs A4-A23 of the Alexa Smarthome Device LBS (LBS19001201)
+E2: Enable Logging (0-none|1-emerg|2-alert|3-crit|4-err|5-warning|6-notice|7-info|8-debug)
+E3: Name of Echo 1
+E4: Name of Echo 2
+E5: Name of Echo 3
+E6: Name of Echo 4
+E7: Name of Echo 5
+E8: Name of Echo 6
+E9: Name of Echo 7
+E10: Name of Echo 8
+E11: Name of Echo 9
+E12: Name of Echo 10
+
+A1: Name of Echo device which was triggered by the last voice command
+A2: Result of last operation
+A3: Trigger value at E1 will be sent to A3 if voice command was received by Echo 1
+A4: Trigger value at E1 will be sent to A4 if voice command was received by Echo 2
+A5: Trigger value at E1 will be sent to A5 if voice command was received by Echo 3
+A6: Trigger value at E1 will be sent to A6 if voice command was received by Echo 4
+A7: Trigger value at E1 will be sent to A7 if voice command was received by Echo 5
+A8: Trigger value at E1 will be sent to A8 if voice command was received by Echo 6
+A9: Trigger value at E1 will be sent to A9 if voice command was received by Echo 7
+A10: Trigger value at E1 will be sent to A10 if voice command was received by Echo 8
+A11: Trigger value at E1 will be sent to A11 if voice command was received by Echo 9
+A12: Trigger value at E1 will be sent to A12 if voice command was received by Echo 10
+A13: Trigger value at E1 will be sent to A13 if voice command was received by Echo 11
+A14: Trigger value at E1 will be sent to A14 if voice command was received by Echo 12
+A15: Trigger value at E1 will be sent to A15 if voice command was received by Echo 13
+A16: Trigger value at E1 will be sent to A16 if voice command was received by Echo 14
+A17: Trigger value at E1 will be sent to A17 if voice command was received by Echo 15
+A18: Trigger value at E1 will be sent to A18 if voice command was received by a known Echo device, but not specified at E3-E12
+A19: Trigger value at E1 will be sent to A19 if voice command was received by an unknown Echo device
+
+Changelog:
+==========
+v1.2: Improved device detection — routines and conversation records are now recognized;
+      DEVICE_ARBITRATION and DISCARDED_NON_DEVICE_DIRECTED_INTENT records are explicitly
+      skipped; no transcript required, device name alone is sufficient
+v1.1: Updated to new Alexa API endpoint (rah/alexa-history-records-v2), response key
+      (alexaHistoryRecords), device field (deviceInfo.deviceName), dynamic timestamps
+v1.0: Initial version - drop-in replacement for 19001203 for "new Alexa"
+
+###[/HELP]###
+
+###[LBS]###
 <?
 
 function LB_LBSID($id)
@@ -10,7 +114,10 @@ function LB_LBSID($id)
 }
 
 ?>
-LBS_EXEC_START
+###[/LBS]###
+
+
+###[EXEC]###
 <?
 require (dirname(__FILE__) . "/../../../../main/include/php/incl_lbsexec.php");
 set_time_limit(3);
@@ -27,7 +134,17 @@ function logging($id, $msg, $var = NULL, $priority = 8)
     $E = getLogicEingangDataAll($id);
     $logLevel = getLogicElementVar($id, 103);
     if (is_int($priority) && $priority <= $logLevel && $priority > 0) {
-        $logLevelNames = array('none','emerg','alert','crit','err','warning','notice','info','debug');
+        $logLevelNames = array(
+            'none',
+            'emerg',
+            'alert',
+            'crit',
+            'err',
+            'warning',
+            'notice',
+            'info',
+            'debug'
+        );
         $version = getLogicElementVar($id, 100);
         $lbsNo = getLogicElementVar($id, 101);
         $logName = getLogicElementVar($id, 102) . "-LBS$lbsNo";
@@ -116,8 +233,8 @@ function get_activity_csrf()
 /**
  * Extract the device name from a history record.
  *
- * conversation records  → deviceInfo is an array of objects
- * utterance records     → deviceInfo is a plain object
+ * conversation records  -> deviceInfo is an array of objects
+ * utterance records     -> deviceInfo is a plain object
  *
  * Returns empty string when the record should be skipped.
  */
@@ -253,3 +370,4 @@ logging($id, 'Echo Device identified as: ' . $echoName);
 sql_disconnect();
 
 ?>
+###[/EXEC]###
