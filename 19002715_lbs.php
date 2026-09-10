@@ -272,15 +272,11 @@ function extractDeviceName($activity, $echos)
         }
         // Fallback: parse serial from activityKey and look up in $echos
         // activityKey: customerId#timestamp#deviceType#deviceSerial
+        // $echos is a flat map: [serialNumber => deviceName]
         $parts  = explode('#', $activity['activityKey'] ?? '');
         $serial = count($parts) >= 4 ? $parts[3] : '';
-        if ($serial !== '' && is_array($echos)) {
-            foreach ($echos as $echo) {
-                $echoSerial = $echo['serialNumber'] ?? $echo['deviceSerialNumber'] ?? '';
-                if ($echoSerial === $serial) {
-                    return $echo['accountName'] ?? $echo['deviceName'] ?? $echo['name'] ?? '';
-                }
-            }
+        if ($serial !== '' && is_array($echos) && isset($echos[$serial])) {
+            return $echos[$serial];
         }
     } elseif ($activity['recordType'] === 'utterance') {
         return $activity['deviceInfo']['deviceName'] ?? '';
@@ -367,7 +363,6 @@ if (file_exists('/tmp/.echos.inc.php')) {
             $found   = false;
 
             if (isset($decoded['alexaHistoryRecords']) && is_array($decoded['alexaHistoryRecords'])) {
-                logging($id, 'echos structure sample: ' . json_encode(array_slice($echos, 0, 1)));
                 foreach ($decoded['alexaHistoryRecords'] as $activity) {
                     $deviceName = extractDeviceName($activity, $echos);
                     if ($deviceName === '')
