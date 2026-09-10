@@ -1,5 +1,5 @@
 ###[DEF]###
-[name		= New Alexa Last Active Echo Device v1.8	]
+[name		= New Alexa Last Active Echo Device v1.9	]
 
 [e#1 trigger = Trigger ]
 [e#2		 = Log level #init=8 ]
@@ -39,7 +39,7 @@
 [a#18		= Echo OTHER ]
 [a#19		= Echo UNKNOWN ]
 
-[v#100		= 1.8 ]
+[v#100		= 1.9 ]
 [v#101		= 19002715 ]
 [v#102		= New-Alexa-Last-Active-Echo-Device ]
 [v#103		= 0 ]
@@ -92,6 +92,9 @@ A19: Trigger value at E1 will be sent to A19 if voice command was received by an
 
 Changelog:
 ==========
+v1.9: Fallback: extract device serial from activityKey when conversation.deviceInfo
+      is empty (Amazon changed API — deviceInfo now always []), look up serial in
+      $echos array; reduce history window from 7 days to 1 hour
 v1.8: Skip ROUTINES_3P records — triggered automatically on multiple devices,
       not by a person speaking to a specific device
 v1.7: Hardcode Alexa iOS app User-Agent for all requests to prevent Amazon
@@ -248,25 +251,38 @@ function get_activity_csrf()
 /**
  * Extract the device name from a history record.
  *
- * conversation records  -> deviceInfo is an array of objects
+ * conversation records  -> deviceInfo is an array of objects (or empty since API change)
  * utterance records     -> deviceInfo is a plain object
+ *
+ * Falls back to activityKey serial lookup in $echos when deviceInfo is empty.
+ * activityKey format: <customerId>#<timestamp>#<deviceType>#<deviceSerial>
  *
  * Returns empty string when the record should be skipped.
  */
-function extractDeviceName($activity)
+function extractDeviceName($activity, $echos)
 {
-    // Skip records where the device heard the wake word but did not handle the request
     if (isset($activity['utteranceType']) && in_array($activity['utteranceType'], SKIP_UTTERANCE_TYPES)) {
         return '';
     }
 
     if ($activity['recordType'] === 'conversation') {
-        // deviceInfo is an array; first entry is the responding device
+        // Try deviceInfo first (populated in older API responses)
         if (!empty($activity['deviceInfo']) && is_array($activity['deviceInfo'])) {
             return $activity['deviceInfo'][0]['deviceName'] ?? '';
         }
+        // Fallback: parse serial from activityKey and look up in $echos
+        // activityKey: customerId#timestamp#deviceType#deviceSerial
+        $parts  = explode('#', $activity['activityKey'] ?? '');
+        $serial = count($parts) >= 4 ? $parts[3] : '';
+        if ($serial !== '' && is_array($echos)) {
+            foreach ($echos as $echo) {
+                $echoSerial = $echo['serialNumber'] ?? $echo['deviceSerialNumber'] ?? '';
+                if ($echoSerial === $serial) {
+                    return $echo['accountName'] ?? $echo['deviceName'] ?? $echo['name'] ?? '';
+                }
+            }
+        }
     } elseif ($activity['recordType'] === 'utterance') {
-        // deviceInfo is a plain object
         return $activity['deviceInfo']['deviceName'] ?? '';
     }
 
@@ -308,7 +324,7 @@ if (file_exists('/tmp/.echos.inc.php')) {
         }
 
         $endTime   = round(microtime(true) * 1000);
-        $startTime = $endTime - (7 * 24 * 60 * 60 * 1000);
+        $startTime = $endTime - (1 * 60 * 60 * 1000); // 1 hour
 
         $http_headers = array(
             'DNT: 1',
@@ -351,8 +367,9 @@ if (file_exists('/tmp/.echos.inc.php')) {
             $found   = false;
 
             if (isset($decoded['alexaHistoryRecords']) && is_array($decoded['alexaHistoryRecords'])) {
+                logging($id, 'echos structure sample: ' . json_encode(array_slice($echos, 0, 1)));
                 foreach ($decoded['alexaHistoryRecords'] as $activity) {
-                    $deviceName = extractDeviceName($activity);
+                    $deviceName = extractDeviceName($activity, $echos);
                     if ($deviceName === '')
                         continue;
 
