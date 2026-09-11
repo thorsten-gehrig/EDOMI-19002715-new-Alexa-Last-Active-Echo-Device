@@ -386,7 +386,8 @@ if (file_exists('/tmp/.echos.inc.php')) {
 
                     $echoName = $deviceName;
                     $type     = $activity['utteranceType'] ?? $activity['type'] ?? 'conversation';
-                    logging($id, "Match — Device: '{$echoName}' | Type: '{$type}'");
+                    $subtitle = $activity['subTitle'] ?? '';
+                    logging($id, "Match — Device: '{$echoName}' | Type: '{$type}' | Command: '{$subtitle}'");
 
                     logic_setOutput($id, 1, $echoName);
                     logic_setOutput($id, 2, 'OK (' . $info['http_code'] . ')');
