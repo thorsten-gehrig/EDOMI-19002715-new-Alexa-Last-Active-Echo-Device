@@ -367,7 +367,7 @@ if (file_exists('/tmp/.echos.inc.php')) {
             logging($id, 'Response body: ' . $body);
 
             $decoded = json_decode($body, true);
-            logging($id, 'Response body decoded: ' $decoded);
+            logging($id, 'Response body decoded:', $decoded);
             $found   = false;
 
             if (isset($decoded['alexaHistoryRecords']) && is_array($decoded['alexaHistoryRecords'])) {
