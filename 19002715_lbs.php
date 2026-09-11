@@ -144,6 +144,7 @@ define('SKIP_UTTERANCE_TYPES', [
     'DEVICE_ARBITRATION',
     'DISCARDED_NON_DEVICE_DIRECTED_INTENT',
     'ROUTINES_3P',       // triggered automatically on multiple devices, not by a person
+    'WAKE_WORD_ONLY',    // device heard wake word but no command followed
 ]);
 
 // Alexa app identifier header — identifies requests as coming from the official Alexa iOS app
