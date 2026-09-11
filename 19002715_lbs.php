@@ -1,5 +1,5 @@
 ###[DEF]###
-[name		= New Alexa Last Active Echo Device v1.9	]
+[name		= New Alexa Last Active Echo Device v1.10	]
 
 [e#1 trigger = Trigger ]
 [e#2		 = Log level #init=8 ]
@@ -39,7 +39,7 @@
 [a#18		= Echo OTHER ]
 [a#19		= Echo UNKNOWN ]
 
-[v#100		= 1.9 ]
+[v#100		= 1.10 ]
 [v#101		= 19002715 ]
 [v#102		= New-Alexa-Last-Active-Echo-Device ]
 [v#103		= 0 ]
@@ -90,6 +90,10 @@ A19: Trigger value at E1 will be sent to A19 if voice command was received by an
 
 Changelog:
 ==========
+v1.10: Fallback for empty conversation.deviceInfo: build a timestamp→device map
+       from all utterance records with populated deviceInfo, then find the nearest
+       match within 5 s; conversation records have no activityKey so the v1.9
+       serial-lookup never fired — this replaces it
 v1.9: Fallback: extract device serial from activityKey when conversation.deviceInfo
       is empty (Amazon changed API — deviceInfo now always []), look up serial in
       $echos array; reduce history window from 7 days to 1 hour
@@ -249,33 +253,38 @@ function get_activity_csrf()
 /**
  * Extract the device name from a history record.
  *
- * conversation records  -> deviceInfo is an array of objects (or empty since API change)
+ * conversation records  -> deviceInfo is an array of objects (empty when API omits it)
  * utterance records     -> deviceInfo is a plain object
  *
- * Falls back to activityKey serial lookup in $echos when deviceInfo is empty.
- * activityKey format: <customerId>#<timestamp>#<deviceType>#<deviceSerial>
+ * $utteranceDeviceMap is a pre-built [timestamp => deviceName] map from all utterance
+ * records in the same response. Used as fallback when conversation.deviceInfo is empty:
+ * find the nearest utterance device within 5 seconds of the conversation timestamp.
  *
  * Returns empty string when the record should be skipped.
  */
-function extractDeviceName($activity, $echos)
+function extractDeviceName($activity, $echos, $utteranceDeviceMap = [])
 {
     if (isset($activity['utteranceType']) && in_array($activity['utteranceType'], SKIP_UTTERANCE_TYPES)) {
         return '';
     }
 
     if ($activity['recordType'] === 'conversation') {
-        // Try deviceInfo first (populated in older API responses)
+        // Primary: use deviceInfo when populated
         if (!empty($activity['deviceInfo']) && is_array($activity['deviceInfo'])) {
             return $activity['deviceInfo'][0]['deviceName'] ?? '';
         }
-        // Fallback: parse serial from activityKey and look up in $echos
-        // activityKey: customerId#timestamp#deviceType#deviceSerial
-        // $echos is a flat map: [serialNumber => deviceName]
-        $parts  = explode('#', $activity['activityKey'] ?? '');
-        $serial = count($parts) >= 4 ? $parts[3] : '';
-        if ($serial !== '' && is_array($echos) && isset($echos[$serial])) {
-            return $echos[$serial];
+        // Fallback: find the nearest utterance device within 5 seconds
+        $convTs   = $activity['timestamp'];
+        $bestName = '';
+        $bestDiff = PHP_INT_MAX;
+        foreach ($utteranceDeviceMap as $ts => $name) {
+            $diff = abs($ts - $convTs);
+            if ($diff < 5000 && $diff < $bestDiff) {
+                $bestDiff = $diff;
+                $bestName = $name;
+            }
         }
+        return $bestName;
     } elseif ($activity['recordType'] === 'utterance') {
         return $activity['deviceInfo']['deviceName'] ?? '';
     }
@@ -362,8 +371,16 @@ if (file_exists('/tmp/.echos.inc.php')) {
             $found   = false;
 
             if (isset($decoded['alexaHistoryRecords']) && is_array($decoded['alexaHistoryRecords'])) {
+                // Build timestamp→device map from utterance records for fallback correlation
+                $utteranceDeviceMap = [];
+                foreach ($decoded['alexaHistoryRecords'] as $rec) {
+                    if ($rec['recordType'] === 'utterance' && isset($rec['deviceInfo']['deviceName'])) {
+                        $utteranceDeviceMap[$rec['timestamp']] = $rec['deviceInfo']['deviceName'];
+                    }
+                }
+
                 foreach ($decoded['alexaHistoryRecords'] as $activity) {
-                    $deviceName = extractDeviceName($activity, $echos);
+                    $deviceName = extractDeviceName($activity, $echos, $utteranceDeviceMap);
                     if ($deviceName === '')
                         continue;
 
