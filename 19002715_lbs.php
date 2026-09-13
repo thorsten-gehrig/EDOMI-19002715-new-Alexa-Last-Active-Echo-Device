@@ -251,6 +251,25 @@ function get_activity_csrf()
     return [$httpCode, $token];
 }
 
+// Cache the activity CSRF token for up to 5 minutes to avoid Amazon 429 rate limiting.
+// Returns [httpCode, token, 'cached'|'fresh'].
+function get_activity_csrf_cached()
+{
+    $cacheFile = '/tmp/.alexa_activity_csrf.json';
+    $cacheTTL  = 300; // seconds
+    if (file_exists($cacheFile)) {
+        $data = json_decode(file_get_contents($cacheFile), true);
+        if (isset($data['token'], $data['ts']) && (time() - $data['ts']) < $cacheTTL && $data['token'] !== '') {
+            return [200, $data['token'], 'cached'];
+        }
+    }
+    [$httpCode, $token] = get_activity_csrf();
+    if ($httpCode === 200 && $token !== '') {
+        file_put_contents($cacheFile, json_encode(['token' => $token, 'ts' => time()]));
+    }
+    return [$httpCode, $token, 'fresh'];
+}
+
 /**
  * Extract the device name from a history record.
  *
@@ -314,8 +333,8 @@ if (file_exists('/tmp/.echos.inc.php')) {
             exit();
         }
 
-        [$csrfHttpCode, $activity_csrf] = get_activity_csrf();
-        logging($id, 'Activity-CSRF endpoint HTTP ' . $csrfHttpCode . ' | token: ' . ($activity_csrf !== '' ? $activity_csrf : '(empty)'));
+        [$csrfHttpCode, $activity_csrf, $csrfSource] = get_activity_csrf_cached();
+        logging($id, 'Activity-CSRF ' . $csrfSource . ' HTTP ' . $csrfHttpCode . ' | token: ' . ($activity_csrf !== '' ? $activity_csrf : '(empty)'));
         if ($csrfHttpCode !== 200 || $activity_csrf === '') {
             $hint = ($csrfHttpCode == 401 || $csrfHttpCode == 403)
                 ? ' Session not authenticated — re-login via LBS19000809 required.'
