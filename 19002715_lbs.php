@@ -319,9 +319,11 @@ if (file_exists('/tmp/.echos.inc.php')) {
         if ($csrfHttpCode !== 200 || $activity_csrf === '') {
             $hint = ($csrfHttpCode == 401 || $csrfHttpCode == 403)
                 ? ' Session not authenticated — re-login via LBS19000809 required.'
-                : (($csrfHttpCode == 503 || $csrfHttpCode == 502 || $csrfHttpCode == 504)
-                    ? ' Amazon server temporarily unavailable — will recover on its own.'
-                    : ' Check network or Amazon session.');
+                : ($csrfHttpCode == 429
+                    ? ' Amazon rate limit hit — will recover on its own.'
+                    : (($csrfHttpCode == 503 || $csrfHttpCode == 502 || $csrfHttpCode == 504)
+                        ? ' Amazon server temporarily unavailable — will recover on its own.'
+                        : ' Check network or Amazon session.'));
             logic_setOutput($id, 1, 'UNKNOWN');
             logic_setOutput($id, 2, 'csrf-token fetch failed (HTTP ' . $csrfHttpCode . ').' . $hint);
             logging($id, 'Aborting: csrf-token endpoint returned HTTP ' . $csrfHttpCode, null, 1);
