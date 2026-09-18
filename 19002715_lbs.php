@@ -252,6 +252,7 @@ function get_activity_csrf()
 }
 
 // Cache the activity CSRF token for up to 5 minutes to avoid Amazon 429 rate limiting.
+// Error responses are also cached so a 429/503 suppresses retries for the full TTL.
 // Returns [httpCode, token, 'cached'|'fresh'].
 function get_activity_csrf_cached()
 {
@@ -259,14 +260,18 @@ function get_activity_csrf_cached()
     $cacheTTL  = 300; // seconds
     if (file_exists($cacheFile)) {
         $data = json_decode(file_get_contents($cacheFile), true);
-        if (isset($data['token'], $data['ts']) && (time() - $data['ts']) < $cacheTTL && $data['token'] !== '') {
-            return [200, $data['token'], 'cached'];
+        if (isset($data['ts']) && (time() - $data['ts']) < $cacheTTL) {
+            // Return whatever was last saved — success or error — to suppress retries
+            return [$data['code'] ?? 200, $data['token'] ?? '', 'cached'];
         }
     }
     [$httpCode, $token] = get_activity_csrf();
-    if ($httpCode === 200 && $token !== '') {
-        file_put_contents($cacheFile, json_encode(['token' => $token, 'ts' => time()]));
-    }
+    // Save all responses so errors are also throttled
+    file_put_contents($cacheFile, json_encode([
+        'token' => ($httpCode === 200 ? $token : ''),
+        'code'  => $httpCode,
+        'ts'    => time(),
+    ]));
     return [$httpCode, $token, 'fresh'];
 }
 
