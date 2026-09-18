@@ -1,5 +1,5 @@
 ###[DEF]###
-[name		= New Alexa Last Active Echo Device v1.10	]
+[name		= New Alexa Last Active Echo Device v1.11	]
 
 [e#1 trigger = Trigger ]
 [e#2		 = Log level #init=8 ]
@@ -39,7 +39,7 @@
 [a#18		= Echo OTHER ]
 [a#19		= Echo UNKNOWN ]
 
-[v#100		= 1.10 ]
+[v#100		= 1.11 ]
 [v#101		= 19002715 ]
 [v#102		= New-Alexa-Last-Active-Echo-Device ]
 [v#103		= 0 ]
@@ -90,6 +90,11 @@ A19: Trigger value at E1 will be sent to A19 if voice command was received by an
 
 Changelog:
 ==========
+v1.11: Skip ASR_TIMEOUT and FALSE_WAKE_WORD_1P records (device heard nothing or
+       woke on a false positive — not a real command); update hardcoded
+       User-Agent to the current Alexa iOS build 2.2.761199.0; note
+       conversation.deviceInfo is still populated on the live API, so the
+       v1.9/v1.10 fallback stays only as a safety net
 v1.10: Fallback for empty conversation.deviceInfo: build a timestamp→device map
        from all utterance records with populated deviceInfo, then find the nearest
        match within 5 s; conversation records have no activityKey so the v1.9
@@ -145,13 +150,15 @@ define('SKIP_UTTERANCE_TYPES', [
     'DISCARDED_NON_DEVICE_DIRECTED_INTENT',
     'ROUTINES_3P',       // triggered automatically on multiple devices, not by a person
     'WAKE_WORD_ONLY',    // device heard wake word but no command followed
+    'ASR_TIMEOUT',       // device heard wake word but no speech was recognized
+    'FALSE_WAKE_WORD_1P' // device woke on a false positive, no command
 ]);
 
 // Alexa app identifier header — identifies requests as coming from the official Alexa iOS app
 define('ALEXA_APP_HEADER', 'eyJhcHBJZCI6ImFtem4xLmFwcGxpY2F0aW9uLjQ1Nzg2ZWUwOWIwMjRhMDhhNjk4ZDMwYjBhZDMxMDM3IiwidmVyc2lvbiI6IjEuMCJ9');
 
 // User-Agent matching the Alexa iOS app — required to avoid Amazon 429 rate limiting on server IPs
-define('ALEXA_USER_AGENT', 'AppleWebKit PitanguiBridge/2.2.757290.0-[HARDWARE=iPhone16_1][SOFTWARE=27.0][DEVICE=iPhone]');
+define('ALEXA_USER_AGENT', 'AppleWebKit PitanguiBridge/2.2.761199.0-[HARDWARE=iPhone16_1][SOFTWARE=27.0][DEVICE=iPhone]');
 
 function logging($id, $msg, $var = NULL, $priority = 8)
 {
@@ -278,28 +285,32 @@ function get_activity_csrf_cached()
 /**
  * Extract the device name from a history record.
  *
- * conversation records  -> deviceInfo is an array of objects (empty when API omits it)
+ * conversation records  -> deviceInfo is an array of objects. Observed populated on the
+ *                          live API (2026-09); the fallback below is only a safety net
+ *                          in case Amazon ever omits it again.
  * utterance records     -> deviceInfo is a plain object
  *
- * $utteranceDeviceMap is a pre-built [timestamp => deviceName] map from all utterance
- * records in the same response. Used as fallback when conversation.deviceInfo is empty:
+ * $utteranceDeviceMap is a pre-built [timestamp => deviceName] map from the utterance
+ * records in the same response. Used only when conversation.deviceInfo is empty:
  * find the nearest utterance device within 5 seconds of the conversation timestamp.
  *
  * Returns empty string when the record should be skipped.
  */
-function extractDeviceName($activity, $echos, $utteranceDeviceMap = [])
+function extractDeviceName($activity, $utteranceDeviceMap = [])
 {
+    $recordType = $activity['recordType'] ?? '';
+
     if (isset($activity['utteranceType']) && in_array($activity['utteranceType'], SKIP_UTTERANCE_TYPES)) {
         return '';
     }
 
-    if ($activity['recordType'] === 'conversation') {
+    if ($recordType === 'conversation') {
         // Primary: use deviceInfo when populated
         if (!empty($activity['deviceInfo']) && is_array($activity['deviceInfo'])) {
             return $activity['deviceInfo'][0]['deviceName'] ?? '';
         }
-        // Fallback: find the nearest utterance device within 5 seconds
-        $convTs   = $activity['timestamp'];
+        // Fallback (safety net): find the nearest utterance device within 5 seconds
+        $convTs   = $activity['timestamp'] ?? 0;
         $bestName = '';
         $bestDiff = PHP_INT_MAX;
         foreach ($utteranceDeviceMap as $ts => $name) {
@@ -310,7 +321,7 @@ function extractDeviceName($activity, $echos, $utteranceDeviceMap = [])
             }
         }
         return $bestName;
-    } elseif ($activity['recordType'] === 'utterance') {
+    } elseif ($recordType === 'utterance') {
         return $activity['deviceInfo']['deviceName'] ?? '';
     }
 
@@ -408,7 +419,7 @@ if (file_exists('/tmp/.echos.inc.php')) {
                 }
 
                 foreach ($decoded['alexaHistoryRecords'] as $activity) {
-                    $deviceName = extractDeviceName($activity, $echos, $utteranceDeviceMap);
+                    $deviceName = extractDeviceName($activity, $utteranceDeviceMap);
                     if ($deviceName === '')
                         continue;
 
