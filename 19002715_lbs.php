@@ -1,5 +1,5 @@
 ###[DEF]###
-[name		= New Alexa Last Active Echo Device v1.11	]
+[name		= New Alexa Last Active Echo Device v1.12	]
 
 [e#1 trigger = Trigger ]
 [e#2		 = Log level #init=8 ]
@@ -39,7 +39,7 @@
 [a#18		= Echo OTHER ]
 [a#19		= Echo UNKNOWN ]
 
-[v#100		= 1.11 ]
+[v#100		= 1.12 ]
 [v#101		= 19002715 ]
 [v#102		= New-Alexa-Last-Active-Echo-Device ]
 [v#103		= 0 ]
@@ -90,6 +90,11 @@ A19: Trigger value at E1 will be sent to A19 if voice command was received by an
 
 Changelog:
 ==========
+v1.12: Fix repeated HTTP 429 on the csrf-token endpoint: reuse the last good
+       anti-csrftoken-a2z (the iOS app reuses one token across many requests)
+       instead of fetching every 5 min, fall back to it when a refresh fails
+       instead of aborting, and invalidate it when history-records rejects it
+       (401/403). Log only a short token/error excerpt, send accept-language
 v1.11: Skip ASR_TIMEOUT and FALSE_WAKE_WORD_1P records (device heard nothing or
        woke on a false positive — not a real command); update hardcoded
        User-Agent to the current Alexa iOS build 2.2.761199.0; note
@@ -236,6 +241,7 @@ function get_activity_csrf()
     $http_headers = array(
         'Accept: text/plain, text/html, */*',
         'Content-Type: application/json',
+        'accept-language: en-US',
         'csrf: ' . $csrf,
         'x-amzn-timezoneid: Europe/Berlin',
         'x-amzn-alexa-app: ' . ALEXA_APP_HEADER,
@@ -258,28 +264,90 @@ function get_activity_csrf()
     return [$httpCode, $token];
 }
 
-// Cache the activity CSRF token for up to 5 minutes to avoid Amazon 429 rate limiting.
-// Error responses are also cached so a 429/503 suppresses retries for the full TTL.
-// Returns [httpCode, token, 'cached'|'fresh'].
+// The anti-csrftoken-a2z token is long-lived: the Alexa iOS app reuses a single one
+// across many requests. Hammering the /csrf-token endpoint every few minutes is what
+// triggers Amazon's HTTP 429, so we reuse the last good token aggressively and only
+// refresh when it is old. A failed refresh no longer discards a still-usable token —
+// it falls back to the cached one so a 429/5xx doesn't break the LBS.
+//
+// Returns [httpCode, token, source] where source is:
+//   'cached'    - reused a token that is still within $tokenTTL (no network call)
+//   'fresh'     - newly fetched successfully
+//   'stale'     - refresh failed, reusing the last good token
+//   'throttled' - refresh failed recently and there is no token to fall back to
+//   'failed'    - refresh failed and there is no token to fall back to
 function get_activity_csrf_cached()
 {
-    $cacheFile = '/tmp/.alexa_activity_csrf.json';
-    $cacheTTL  = 300; // seconds
+    $cacheFile     = '/tmp/.alexa_activity_csrf.json';
+    $tokenTTL      = 1800;      // reuse a good token for 30 min without calling Amazon
+    $staleMaxAge   = 6 * 3600;  // allow an older token to bridge an outage
+    $errorThrottle = 600;       // after a failed refresh, back off this long before retrying
+
+    $data = [];
     if (file_exists($cacheFile)) {
-        $data = json_decode(file_get_contents($cacheFile), true);
-        if (isset($data['ts']) && (time() - $data['ts']) < $cacheTTL) {
-            // Return whatever was last saved — success or error — to suppress retries
-            return [$data['code'] ?? 200, $data['token'] ?? '', 'cached'];
+        $decoded = json_decode(file_get_contents($cacheFile), true);
+        if (is_array($decoded)) {
+            $data = $decoded;
         }
     }
-    [$httpCode, $token] = get_activity_csrf();
-    // Save all responses so errors are also throttled
+
+    $now       = time();
+    $token     = $data['token'] ?? '';
+    $tokenTs   = $data['token_ts'] ?? 0;
+    $lastCode  = $data['last_code'] ?? 0;
+    $lastTryTs = $data['last_try_ts'] ?? 0;
+
+    // 1) A still-fresh good token: always prefer it, never call Amazon.
+    if ($token !== '' && ($now - $tokenTs) < $tokenTTL) {
+        return [200, $token, 'cached'];
+    }
+
+    // 2) After a recent failed refresh, don't hammer Amazon again — reuse the old token if
+    //    we still have one, otherwise report the failure (throttled).
+    if ($lastTryTs > 0 && $lastCode !== 200 && ($now - $lastTryTs) < $errorThrottle) {
+        if ($token !== '' && $tokenTs > 0 && ($now - $tokenTs) < $staleMaxAge) {
+            return [$lastCode, $token, 'stale'];
+        }
+        return [$lastCode, '', 'throttled'];
+    }
+
+    // 3) Refresh.
+    [$httpCode, $newToken] = get_activity_csrf();
+
+    if ($httpCode === 200 && $newToken !== '') {
+        file_put_contents($cacheFile, json_encode([
+            'token'       => $newToken,
+            'token_ts'    => $now,
+            'last_code'   => 200,
+            'last_try_ts' => $now,
+        ]));
+        return [200, $newToken, 'fresh'];
+    }
+
+    // 4) Refresh failed. Keep the last good token so a 429/5xx doesn't break the LBS.
+    //    An HTTP 200 with an empty body also counts as a failure (-1) so it is throttled.
+    $failCode = ($httpCode === 200) ? -1 : $httpCode;
     file_put_contents($cacheFile, json_encode([
-        'token' => ($httpCode === 200 ? $token : ''),
-        'code'  => $httpCode,
-        'ts'    => time(),
+        'token'       => $token,
+        'token_ts'    => $tokenTs,
+        'last_code'   => $failCode,
+        'last_try_ts' => $now,
     ]));
-    return [$httpCode, $token, 'fresh'];
+
+    if ($token !== '' && $tokenTs > 0 && ($now - $tokenTs) < $staleMaxAge) {
+        return [$httpCode, $token, 'stale'];
+    }
+    return [$httpCode, '', 'failed'];
+}
+
+// Drop the cached anti-CSRF token so the next run fetches a fresh one. Called when the
+// history endpoint rejects the token (HTTP 401/403).
+function invalidate_activity_csrf()
+{
+    $cacheFile = '/tmp/.alexa_activity_csrf.json';
+    if (file_exists($cacheFile)) {
+        @unlink($cacheFile);
+    }
 }
 
 /**
@@ -350,8 +418,8 @@ if (file_exists('/tmp/.echos.inc.php')) {
         }
 
         [$csrfHttpCode, $activity_csrf, $csrfSource] = get_activity_csrf_cached();
-        logging($id, 'Activity-CSRF ' . $csrfSource . ' HTTP ' . $csrfHttpCode . ' | token: ' . ($activity_csrf !== '' ? $activity_csrf : '(empty)'));
-        if ($csrfHttpCode !== 200 || $activity_csrf === '') {
+        logging($id, 'Activity-CSRF ' . $csrfSource . ' HTTP ' . $csrfHttpCode . ' | token: ' . ($activity_csrf !== '' ? substr($activity_csrf, 0, 48) : '(empty)'));
+        if ($activity_csrf === '') {
             $hint = ($csrfHttpCode == 401 || $csrfHttpCode == 403)
                 ? ' Session not authenticated — re-login via LBS19000809 required.'
                 : ($csrfHttpCode == 429
@@ -361,9 +429,12 @@ if (file_exists('/tmp/.echos.inc.php')) {
                         : ' Check network or Amazon session.'));
             logic_setOutput($id, 1, 'UNKNOWN');
             logic_setOutput($id, 2, 'csrf-token fetch failed (HTTP ' . $csrfHttpCode . ').' . $hint);
-            logging($id, 'Aborting: csrf-token endpoint returned HTTP ' . $csrfHttpCode, null, 1);
+            logging($id, 'Aborting: no usable anti-CSRF token (HTTP ' . $csrfHttpCode . ')', null, 1);
             sql_disconnect();
             exit();
+        }
+        if ($csrfSource === 'stale') {
+            logging($id, 'WARNING: csrf-token refresh failed (HTTP ' . $csrfHttpCode . '), reusing previously cached anti-CSRF token', null, 5);
         }
 
         $endTime   = round(microtime(true) * 1000);
@@ -374,6 +445,7 @@ if (file_exists('/tmp/.echos.inc.php')) {
             'Connection: keep-alive',
             'Content-Type: application/json; charset=UTF-8',
             'Accept: application/json',
+            'accept-language: en-US',
             'anti-csrftoken-a2z: ' . $activity_csrf,
             'csrf: ' . $csrf,
             'x-amzn-timezoneid: Europe/Berlin',
@@ -454,6 +526,10 @@ if (file_exists('/tmp/.echos.inc.php')) {
             }
 
         } else {
+            if ($info['http_code'] == 401 || $info['http_code'] == 403) {
+                invalidate_activity_csrf();
+                logging($id, 'Cached anti-CSRF token rejected (HTTP ' . $info['http_code'] . '), invalidated for next run', null, 4);
+            }
             $hint = ($info['http_code'] == 403)
                 ? ' — Session expired or cookies invalid. Re-login via LBS19000809 required.'
                 : '';
