@@ -491,14 +491,22 @@ if (file_exists('/tmp/.echos.inc.php')) {
                 }
 
                 foreach ($decoded['alexaHistoryRecords'] as $activity) {
-                    $deviceName = extractDeviceName($activity, $utteranceDeviceMap);
+                    $deviceName = extractDeviceName($activity, $echos, $utteranceDeviceMap);
                     if ($deviceName === '')
                         continue;
 
-                    $echoName = $deviceName;
-                    $type     = $activity['utteranceType'] ?? $activity['type'] ?? 'conversation';
-                    $subtitle = $activity['subTitle'] ?? '';
-                    logging($id, "Match — Device: '{$echoName}' | Type: '{$type}' | Command: '{$subtitle}'");
+                    $echoName      = $deviceName;
+                    $type          = $activity['utteranceType'] ?? $activity['type'] ?? 'conversation';
+                    $title         = $activity['title'] ?? '';
+                    $subtitle      = $activity['subTitle'] ?? '';
+                    $transcriptText = '';
+                    foreach ($activity['voiceHistoryRecordItems'] ?? [] as $item) {
+                        if (($item['recordItemType'] ?? '') === 'ASR_REPLACEMENT_TEXT' && !empty($item['transcriptText'])) {
+                            $transcriptText = $item['transcriptText'];
+                            break;
+                        }
+                    }
+                    logging($id, "Match — Device: '{$echoName}' | Type: '{$type}' | Title: '{$title}' | Command: '{$subtitle}' | Transcript: '{$transcriptText}'");
 
                     logic_setOutput($id, 1, $echoName);
                     logic_setOutput($id, 2, 'OK (' . $info['http_code'] . ')');
